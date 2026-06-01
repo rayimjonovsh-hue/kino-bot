@@ -4,7 +4,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 
 # 1. TAYYORGARLIK: Ma'lumotlarni shu yerga kiriting
-BOT_TOKEN = "8775079643:AAHdz4Yx40ZjqAEKS4LArbaM_LZ2VeRiRHI"
+BOT_TOKEN = "8775079643:AAELIzIgt_sztnwPkqI8rOAZ5JoOQMfcDYM"
 KANAL_ID = -1003874841801  # Bu yerga boya botdan olgan kanal ID-sini yozing
 
 bot = Bot(token=BOT_TOKEN)
