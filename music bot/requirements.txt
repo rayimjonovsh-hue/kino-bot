@@ -1,0 +1,4 @@
+aiogram
+openai
+yt-dlp
+python-dotenv
