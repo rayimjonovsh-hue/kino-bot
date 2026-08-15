@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
@@ -101,8 +102,20 @@ async def check_movie_code(message: types.Message):
     else:
         await message.answer("⚠️ Iltimos, kino kodini faqat raqamda yuboring yoki menyudagi tugmalardan foydalaning.")
 
+async def handle(request):
+    return web.Response(text="Bot ishlamoqda!")
+
+async def start_web():
+    app = web.Application()
+    app.router.add_get('/', handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8080)
+    await site.start()
+
 async def main():
     logging.basicConfig(level=logging.INFO)
+    await start_web()
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
