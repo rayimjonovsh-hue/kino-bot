@@ -78,7 +78,7 @@ async def show_help(message: types.Message):
 @dp.message(F.text == "👨‍💻 Admin")
 async def show_admin(message: types.Message):
     FOYDALANUVCHILAR.add(message.from_user.id)
-    await message.answer("👨‍💻 Admin bilan bog'lanish uchun: @admin_username")
+    await message.answer("👨‍💻 Admin bilan bog'lanish uchun: @mrbek077")
 
 # Kino kodini tekshirish va kanaldan nusxalab berish
 @dp.message(F.text)
