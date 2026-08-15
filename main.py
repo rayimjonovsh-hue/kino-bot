@@ -5,7 +5,7 @@ from aiogram.filters import CommandStart
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
 # 1. SOZLAMALAR
-BOT_TOKEN = "8775079643:AAGYoXpUFdJtIqaHwjQwUuvtBmsJt3PyUjEs"
+BOT_TOKEN = "8775079643:AAGYoXpUFdJtIqaHwjQwUuvtBmsJt3PyUjE"
 KANAL_ID = -1003874841801
 ADMIN_ID = 8358382613  # O'zingizning Telegram ID-ngizni yozing
 
