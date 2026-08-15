@@ -58,7 +58,8 @@ async def show_genres(message: types.Message):
         "😂 Komediya\n"
         "🤖 Fantastika\n"
         "❤️ Melodrama\n\n"
-        "💡 Janrlar bo'yicha kinolar kodini kanaldan topishingiz mumkin!"
+        "💡 Janrlar bo'yicha kinolar kodini kanalimizdan topishingiz mumkin!\n"
+        "👉 https://t.me/filimlar9"
     )
     await message.answer(matn)
 
