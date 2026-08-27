@@ -133,16 +133,33 @@ async def show_genres(message: types.Message):
     await message.answer(text)
 
 # 8. YORDAM TUGMASI
-@dp.message(F.text == "ℹ️ Yordam")
+# 8. YORDAM TUGMASI
+@dp.message(F.text.in_({"ℹ️ Yordam", "Yordam"}))
 async def show_help(message: types.Message):
     save_user(message.from_user.id)
-    await message.answer("🤖 Botdan foydalanish uchun kino kodini raqamda yuboring (Masalan: 1, 2, 5).")
+    text = (
+        "ℹ️ Bot haqida ma'lumot va yo'riqnoma\n\n"
+        "🎬 Ushbu botda turli xil janrdagi saralangan kinolar va seriallarni yuqori sifatda tomosha qilishingiz mumkin!\n\n"
+        "✨ Botimizda hech qanday majburiy obunalar yo'q (bekorga vaqtingiz ketmaydi).\n\n"
+        "🍿 Kino tomosha qilish tartibi:\n"
+        "1. Kunning eng yangi va zo'r kinolari kodlarini 👉 @filimlar9 kanalimizdan topasiz.\n"
+        "2. U yerdagi kino kodini botga shunchaki raqamda yuborasiz (Masalan: 12).\n"
+        "3. Bot sizga kinoni lahzalarda yetkazib beradi!\n\n"
+        "❤️ *Bizning kamtarona mehnatimizni qadrlab, kanallarimizga obuna bo'lib qo meyxondagidek qo'llab-quvvatlaysiz degan umiddamiz!*"
+    )
+    await message.answer(text, parse_mode="Markdown", disable_web_page_preview=True)
 
 # 9. ADMIN TUGMASI
-@dp.message(F.text == "👤 Admin")
+# 9. ADMIN TUGMASI
+@dp.message(F.text.in_({"👨‍💻 Admin", "🧑‍💻 Admin", "👤 Admin", "Admin"}))
 async def show_admin(message: types.Message):
     save_user(message.from_user.id)
-    await message.answer("👨‍💻 Admin bilan bog'lanish: @filimlar9")
+    text = (
+        "👨‍💻 Bot admini bilan bog'lanish:\n\n"
+        "Barcha savollar bo'yicha profilga yozishingiz mumkin:\n"
+        "👉 [Admin Profiliga O'tish](tg://user?id=8358382613)"
+    )
+    await message.answer(text, parse_mode="Markdown")
 
 # 10. KINO QIDIRISH (Kino kodi yuborilganda)
 @dp.message(F.text.isdigit())
