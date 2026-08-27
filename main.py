@@ -36,7 +36,26 @@ async def start_cmd(message: types.Message):
         "Kerakli bo'limni tanlang 👇",
         reply_markup=bosh_menyu
     )
+# ADMIN RASSILKA
+@dp.message(F.text.startswith("/send") & (F.from_user.id == ADMIN_ID))
+async def send_broadcast(message: types.Message):
+    text_to_send = message.text.replace("/send", "").strip()
+    if not text_to_send:
+        await message.answer("❌ Matn yozmadingiz! Namuna: /send Salom barchaga", parse_mode="Markdown")
+        return
+        
+    count = 0
+    await message.answer("🚀 Xabar yuborish boshlandi...")
+    for user_id in list(FOYDALANUVCHILAR):
+        try:
+            await bot.send_message(chat_id=user_id, text=text_to_send)
+            count += 1
+            await asyncio.sleep(0.05)
+        except Exception:
+            pass
 
+    await message.answer(f"✅ Xabar {count} ta foydalanuvchiga muvaffaqiyatli yuborildi!")
+    
 # 📊 Statistika (Hammaga ko'rinadi)
 @dp.message(F.text == "📊 Statistika")
 async def show_stats(message: types.Message):
