@@ -1,5 +1,8 @@
+import json
+import os
 import asyncio
 import logging
+from datetime import datetime
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
@@ -8,27 +11,59 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 # 1. SOZLAMALAR
 BOT_TOKEN = "8775079643:AAGYoXpUFdJtIqaHwjQwUuvtBmsJt3PyUjE"
 KANAL_ID = -1003874841801
-ADMIN_ID = 8358382613  # O'zingizning Telegram ID-ngizni yozing
+ADMIN_ID = 8358382613 # O'zingizning Telegram ID-ngiz
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Foydalanuvchilar bazasi
-FOYDALANUVCHILAR = set()
+# 2. BAZA BILAN ISHLASH (JSON)
+DB_FILE = "users.json"
 
-# Asosiy tugmalar (Reply Keyboard)
+def get_today_str():
+    return datetime.now().strftime("%Y-%m-%d")
+
+def load_data():
+    if os.path.exists(DB_FILE):
+        with open(DB_FILE, "r") as f:
+            return json.load(f)
+    return {"users": [], "today_date": get_today_str(), "today_users": [], "left_count": 0}
+
+DATA = load_data()
+FOYDALANUVCHILAR = set(DATA.get("users", []))
+
+def save_user(user_id):
+    today = get_today_str()
+    if DATA.get("today_date") != today:
+        DATA["today_date"] = today
+        DATA["today_users"] = []
+    
+    if user_id not in FOYDALANUVCHILAR:
+        FOYDALANUVCHILAR.add(user_id)
+        DATA["users"] = list(FOYDALANUVCHILAR)
+        if user_id not in DATA["today_users"]:
+            DATA["today_users"].append(user_id)
+            
+    with open(DB_FILE, "w") as f:
+        json.dump(DATA, f)
+
+def log_left_user():
+    DATA["left_count"] = DATA.get("left_count", 0) + 1
+    with open(DB_FILE, "w") as f:
+        json.dump(DATA, f)
+
+# 3. TUGMALAR (Reply Keyboard)
 bosh_menyu = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="🎭 Janrlar"), KeyboardButton(text="📊 Statistika")],
-        [KeyboardButton(text="ℹ️ Yordam"), KeyboardButton(text="👨‍💻 Admin")]
+        [KeyboardButton(text="ℹ️ Yordam"), KeyboardButton(text="👤 Admin")]
     ],
     resize_keyboard=True
 )
 
-# /start bosilganda
+# 4. START BUYRUG'I
 @dp.message(CommandStart())
 async def start_cmd(message: types.Message):
-    FOYDALANUVCHILAR.add(message.from_user.id)
+    save_user(message.from_user.id)
     await message.answer(
         f"👋 Salom, {message.from_user.first_name}!\n\n"
         "🎬 Kinolar olami botiga xush kelibsiz.\n"
@@ -36,7 +71,8 @@ async def start_cmd(message: types.Message):
         "Kerakli bo'limni tanlang 👇",
         reply_markup=bosh_menyu
     )
-# ADMIN RASSILKA
+
+# 5. ADMIN RASSILKA (/send matn)
 @dp.message(F.text.startswith("/send") & (F.from_user.id == ADMIN_ID))
 async def send_broadcast(message: types.Message):
     text_to_send = message.text.replace("/send", "").strip()
@@ -52,75 +88,83 @@ async def send_broadcast(message: types.Message):
             count += 1
             await asyncio.sleep(0.05)
         except Exception:
-            pass
+            log_left_user()
 
     await message.answer(f"✅ Xabar {count} ta foydalanuvchiga muvaffaqiyatli yuborildi!")
-    
-# 📊 Statistika (Hammaga ko'rinadi)
+
+# 6. STATISTIKA (Faqat Admin uchun)
 @dp.message(F.text == "📊 Statistika")
 async def show_stats(message: types.Message):
-    FOYDALANUVCHILAR.add(message.from_user.id)
-    jami = len(FOYDALANUVCHILAR)
-    await message.answer(
-        f"📊 Bot statistikasi:\n\n"
-        f"👥 Jami foydalanuvchilar: {jami} ta\n"
-        f"⚡️ Bot faol holatda ishlamoqda!"
-    )
+    if message.from_user.id == ADMIN_ID:
+        today = get_today_str()
+        if DATA.get("today_date") != today:
+            DATA["today_date"] = today
+            DATA["today_users"] = []
+            with open(DB_FILE, "w") as f:
+                json.dump(DATA, f)
 
-# 🎭 Janrlar
+        jami = len(FOYDALANUVCHILAR)
+        bugun = len(DATA.get("today_users", []))
+        chiqqanlar = DATA.get("left_count", 0)
+
+        text = (
+            f"📊 Bot statistikasi:\n\n"
+            f"👥 Jami foydalanuvchilar: {jami} ta\n"
+            f"📥 Bugun qo'shilganlar: {bugun} ta\n"
+            f"📤 Botdan chiqqanlar: {chiqqanlar} ta"
+        )
+        await message.answer(text, parse_mode="Markdown")
+    else:
+        await message.answer("⚠️ Bu bo'lim faqat admin uchun!")
+
+# 7. JANRLAR TUGMASI
 @dp.message(F.text == "🎭 Janrlar")
 async def show_genres(message: types.Message):
-    FOYDALANUVCHILAR.add(message.from_user.id)
-    matn = (
-        "🎭 Mavjud kino janrlari:\n\n"
-        "💥 Boevik / Jangari\n"
-        "😱 Ujas / Qorqinchli\n"
-        "😂 Komediya\n"
+    save_user(message.from_user.id)
+    text = (
+        "Mavjud kino janrlari:\n"
+        "🍿 Boyevik\n"
+        "🤣 Komediya\n"
         "🤖 Fantastika\n"
         "❤️ Melodrama\n\n"
         "💡 Janrlar bo'yicha kinolar kodini kanalimizdan topishingiz mumkin!\n"
         "👉 https://t.me/filimlar9"
     )
-    await message.answer(matn)
+    await message.answer(text)
 
-# ℹ️ Yordam
+# 8. YORDAM TUGMASI
 @dp.message(F.text == "ℹ️ Yordam")
 async def show_help(message: types.Message):
-    FOYDALANUVCHILAR.add(message.from_user.id)
-    matn = (
-        "ℹ️ Botdan foydalanish yo'riqnomasi:\n\n"
-        "1. Kanalimizdagi kinolarning pastida berilgan kodni ko'rib oling.\n"
-        "2. O'sha kodni botga shunchaki raqamda yuboring (Masalan: 12).\n"
-        "3. Bot sizga kinoni bir necha soniyada tashlab beradi!"
-    )
-    await message.answer(matn)
+    save_user(message.from_user.id)
+    await message.answer("🤖 Botdan foydalanish uchun kino kodini raqamda yuboring (Masalan: 1, 2, 5).")
 
-# 👨‍💻 Admin
-@dp.message(F.text == "👨‍💻 Admin")
+# 9. ADMIN TUGMASI
+@dp.message(F.text == "👤 Admin")
 async def show_admin(message: types.Message):
-    FOYDALANUVCHILAR.add(message.from_user.id)
-    await message.answer("👨‍💻 Admin bilan bog'lanish uchun: @mrbek077")
+    save_user(message.from_user.id)
+    await message.answer("👨‍💻 Admin bilan bog'lanish: @filimlar9")
 
-# Kino kodini tekshirish va kanaldan nusxalab berish
-@dp.message(F.text)
-async def check_movie_code(message: types.Message):
-    FOYDALANUVCHILAR.add(message.from_user.id)
-    kod = message.text.strip()
+# 10. KINO QIDIRISH (Kino kodi yuborilganda)
+@dp.message(F.text.isdigit())
+async def get_movie(message: types.Message):
+    save_user(message.from_user.id)
+    movie_code = message.text
+    try:
+        await bot.copy_message(
+            chat_id=message.chat.id,
+            from_chat_id=KANAL_ID,
+            message_id=int(movie_code)
+        )
+    except Exception:
+        await message.answer("❌ Bu kod bo'yicha kino topilmadi. Kodi to'g'riligini tekshirib ko'ring!")
 
-    if kod.isdigit():
-        message_id = int(kod)
-        try:
-            await bot.copy_message(
-                chat_id=message.chat.id,
-                from_chat_id=KANAL_ID,
-                message_id=message_id
-            )
-        except Exception as e:
-            logging.error(f"Xatolik: {e}")
-            await message.answer("❌ Afsuski, bunday kodli kino topilmadi. Kodni to'g'ri kiritganingizni tekshiring.")
-    else:
-        await message.answer("⚠️ Iltimos, kino kodini faqat raqamda yuboring yoki menyudagi tugmalardan foydalaning.")
+# 11. BOSHQA NOTO'G'RI MATNLAR UCHUN JAVOB
+@dp.message()
+async def unknown_message(message: types.Message):
+    save_user(message.from_user.id)
+    await message.answer("⚠️ Iltimos, kino kodini faqat raqamda yuboring yoki menyudagi tugmalardan foydalaning.")
 
+# 12. VEB-SERVER (Render uchun)
 async def handle(request):
     return web.Response(text="Bot ishlamoqda!")
 
@@ -129,7 +173,8 @@ async def start_web():
     app.router.add_get('/', handle)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', 8080)
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
 
 async def main():
