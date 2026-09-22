@@ -196,8 +196,13 @@ async def start_web():
 
 async def main():
     logging.basicConfig(level=logging.INFO)
-    await start_web()
-    await bot.delete_webhook(drop_pending_updates=True)
+    
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+    except Exception as e:
+        print(f"Webhook o'chirishda xato: {e}")
+
+    asyncio.create_task(start_web())
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
