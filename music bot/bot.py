@@ -2,190 +2,189 @@ import asyncio
 import logging
 import os
 import re
-import aiohttp
 from aiohttp import web
-import yt_dlp
-
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, FSInputFile
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+import yt_dlp
 
-# ==========================================
-# 1. SOZLAMALAR
-# ==========================================
-# Tokeningizni va Admin ID'ingizni kiriting
+# ==================== SOZLAMALAR ====================
 BOT_TOKEN = "8848060623:AAFcjLeYLzMWpUi1Rpr-36bzxP-ZW2-T97A"
-ADMIN_ID = 8358382613
+ADMIN_ID = 8358382613  # Sizning Telegram ID-ngiz
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# ==========================================
-# 2. YOUTUBE QIDIRUV FUNKSIYASI (yt-dlp)
-# ==========================================
-def search_youtube(query: str, max_results: int = 10):
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'noplaylist': True,
-        'quiet': True,
-        'extract_flat': 'in_playlist',
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        try:
-            results = ydl.extract_info(f"ytsearch{max_results}:{query}", download=False)
-            return results.get('entries', [])
-        except Exception as e:
-            logging.error(f"YouTube search error: {e}")
-            return []
+# Foydalanuvchilar bazasi (xotirada)
+FOYDALANUVCHILAR = set()
 
-def download_audio(video_id: str):
-    url = f"https://www.youtube.com/watch?v={video_id}"
-    file_path = f"song_{video_id}.mp3"
+# ==================== WEB SERVER (UptimeRobot / Render uchun) ====================
+async def handle(request):
+    return web.Response(text="Bot 24/7 faol ishlamoqda!")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get('/', handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+
+# ==================== TUGMALAR ====================
+bosh_menyu = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="📊 Statistika"), KeyboardButton(text="ℹ️ Yordam")],
+        [KeyboardButton(text="👨‍💻 Admin")]
+    ],
+    resize_keyboard=True
+)
+
+# ==================== BOT BUYRUQLARI ====================
+@dp.message(CommandStart())
+async def start_cmd(message: types.Message):
+    FOYDALANUVCHILAR.add(message.from_user.id)
+    await message.answer(
+        f"Salom, {message.from_user.first_name}!\n\n"
+        f"🎵 Musiqa va Video Yuklovchi Botga xush kelibsiz!\n\n"
+        f"📌 Nima qila olaman?\n"
+        f"1. Qo'shiq nomini yozing — YouTube'dan topib MP3 qilib beraman.\n"
+        f"2. Instagram linkini yuboring — videoni yuklab beraman.",
+        reply_markup=bosh_menyu,
+        parse_mode="Markdown"
+    )
+
+@dp.message(F.text == "📊 Statistika")
+async def show_stats(message: types.Message):
+    FOYDALANUVCHILAR.add(message.from_user.id)
+    await message.answer(
+        f"📊 Bot statistikasi:\n\n"
+        f"👥 Jami foydalanuvchilar: {len(FOYDALANUVCHILAR)} ta\n"
+        f"⚡️ Bot serverda 24/7 va tezkor ishlamoqda!"
+    )
+
+@dp.message(F.text == "👨‍💻 Admin")
+async def show_admin(message: types.Message):
+    FOYDALANUVCHILAR.add(message.from_user.id)
+    await message.answer("👨‍💻 Admin bilan bog'lanish: @shamsodbek_username")
+
+@dp.message(F.text == "ℹ️ Yordam")
+async def show_help(message: types.Message):
+    FOYDALANUVCHILAR.add(message.from_user.id)
+    await message.answer(
+        "ℹ️ Botdan foydalanish yo'riqnomasi:\n\n"
+        "🔍 Qo'shiq izlash:\n"
+        "Shunchaki qo'shiq nomini yoki ijrochini yozib yuboring (Masalan: *Janob Rasul Yiglama*).\n\n"
+        "📥 Instagram Video:\n"
+        "Instagram post/reels linkini yuboring."
+    )
+
+# ==================== YOUTUBE DANI QIDIRISH VA MP3 YUKLASH ====================
+def search_and_download_yt_mp3(query: str, filename_prefix: str):
     ydl_opts = {
         'format': 'bestaudio/best',
-        'outtmpl': f'song_{video_id}.%(ext)s',
+        'default_search': 'ytsearch1:',  # Birinchi topilgan natijani oladi
+        'outtmpl': f'{filename_prefix}.%(ext)s',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
         'quiet': True,
+        'no_warnings': True,
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
-    
-    # Yuklangan fayl nomini aniqlash
-    if os.path.exists(file_path):
-        return file_path
-    for f in os.listdir('.'):
-        if f.startswith(f"song_{video_id}"):
-            return f
-    return None
+        info = ydl.extract_info(query, download=True)
+        title = info['entries'][0]['title'] if 'entries' in info else info.get('title', 'Musiqa')
+        return title
 
-# ==========================================
-# 3. INSTAGRAM YUKLOVCHI FUNKSIYASI
-# ==========================================
-def download_instagram_video(url: str):
-    file_path = "insta_video.mp4"
-    if os.path.exists(file_path):
-        os.remove(file_path)
-
+# ==================== INSTAGRAM VIDEO YUKLASH ====================
+def download_insta_video(url: str, filename: str):
     ydl_opts = {
         'format': 'best',
-        'outtmpl': file_path,
+        'outtmpl': filename,
         'quiet': True,
+        'no_warnings': True,
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
-    return file_path if os.path.exists(file_path) else None
+# ==================== MATN VA LINKLARNI QABUL QILISH ====================
+@dp.message(F.text & ~F.text.startswith("/"))
+async def handle_user_input(message: types.Message):
+    FOYDALANUVCHILAR.add(message.from_user.id)
+    text = message.text
 
-# ==========================================
-# 4. BOT HANDLERLARI
-# ==========================================
+    # 1. Instagram linki kelgan bo'lsa
+    if "instagram.com" in text:
+        wait_msg = await message.answer("📥 Instagram video yuklanmoqda...")
+        file_path = f"insta_{message.from_user.id}.mp4"
+        try:
+            await asyncio.to_thread(download_insta_video, text, file_path)
+            if os.path.exists(file_path):
+                video_file = types.FSInputFile(file_path)
+                await message.answer_video(video=video_file, caption="✅ Video yuklab olindi!")
+                await wait_msg.delete()
+                os.remove(file_path)
+            else:
+                await wait_msg.edit_text("❌ Videoni yuklab bo'lmadi.")
+        except Exception:
+            await wait_msg.edit_text("❌ Xatolik yuz berdi. Linkni tekshiring.")
+            if os.path.exists(file_path):
+                os.remove(file_path)
 
-@dp.message(CommandStart())
-async def start_cmd(message: types.Message):
-    await message.answer(
-        f"👋 Salom, {message.from_user.first_name}!\n\n"
-        "🎶 Musiqalar qidiruvi: Qo'shiqchi yoki qo'shiq nomini yozing, men 10 ta eng sarasini topib beraman.\n"
-        "📹 Instagram downloader: Instagram video havolasini yuboring, uni yuklab beraman!"
-    )
-
-# 1. Instagram Link kelganda
-@dp.message(F.text.contains("instagram.com"))
-async def handle_instagram(message: types.Message):
-    msg = await message.answer("📥 Instagram video yuklanmoqda, kuting...")
-    try:
-        loop = asyncio.get_event_loop()
-        video_file = await loop.run_in_executor(None, download_instagram_video, message.text.strip())
-        
-        if video_file and os.path.exists(video_file):
-            video_input = FSInputFile(video_file)
-            await message.answer_video(video=video_input, caption="🎬 Instagram'dan yuklab olindi!")
-            await msg.delete()
-            os.remove(video_file)
-        else:
-            await msg.edit_text("❌ Videoni yuklab bo'lmadi. Havola to'g'riligini tekshiring.")
-    except Exception as e:
-        logging.error(f"Insta error: {e}")
-        await msg.edit_text("❌ Xatolik yuz berdi yoki video shaxsiy (private) akkauntdan.")
-
-# 2. Qo'shiq qidiruvi va 10 ta ro'yxat chiqarish
-@dp.message(F.text)
-async def handle_music_search(message: types.Message):
-    query = message.text.strip()
-    msg = await message.answer("🔎 YouTube'dan musiqa qidirilmoqda...")
-    
-    loop = asyncio.get_event_loop()
-    results = await loop.run_in_executor(None, search_youtube, query, 10)
-    
-    if not results:
-        await msg.edit_text("❌ Hech qanday musiqa topilmadi.")
-        return
-
-    text = f"🎵 '{query}' bo'yicha topilgan qo'shiqlar:\n\n"
-    keyboard = []
-    row = []
-
-    for idx, item in enumerate(results, start=1):
-        title = item.get('title', 'Noma\'lum qo\'shiq')
-        video_id = item.get('id')
-        text += f"{idx}. {title}\n"
-
-        # Tugmalarni 2 tadan qatoyga taxlash
-        row.append(InlineKeyboardButton(text=f"🎵 {idx}", callback_query_data=f"dl_{video_id}"))
-        if len(row) == 2:
-            keyboard.append(row)
-            row = []
-            
-    if row:
-        keyboard.append(row)
-
-    markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-    await msg.edit_text(text, reply_markup=markup, parse_mode="Markdown")
-
-# 3. Tugma bosilganda audioni yuklab berish
-@dp.callback_query(F.data.startswith("dl_"))
-async def process_download_callback(call: CallbackQuery):
-    video_id = call.data.split("dl_")[1]
-    await call.answer("📥 Musiqa yuklanmoqda...")
-    await call.message.answer("⌛ Qo'shiq tayyorlanmoqda, biroz kuting...")
-
-    loop = asyncio.get_event_loop()
-    audio_file = await loop.run_in_executor(None, download_audio, video_id)
-
-    if audio_file and os.path.exists(audio_file):
-        audio_input = FSInputFile(audio_file)
-        await call.message.answer_audio(audio=audio_input, caption="🎧 Bot orqali yuklab olindi")
-        os.remove(audio_file)
+    # 2. Qo'shiq nomi (Shazam funksiyasi)
     else:
-        await call.message.answer("❌ Musiqani yuklab bo'lmadi.")
+        wait_msg = await message.answer(f"🔍 \"{text}\" YouTube'dan qidirilmoqda...")
+        file_prefix = f"audio_{message.from_user.id}"
+        mp3_path = f"{file_prefix}.mp3"
+        
+        try:
+            # YouTube'dan qidirib yuklash
+            title = await asyncio.to_thread(search_and_download_yt_mp3, text, file_prefix)
+            
+            if os.path.exists(mp3_path):
+                audio_file = types.FSInputFile(mp3_path, filename=f"{title}.mp3")
+                await message.answer_audio(audio=audio_file, caption=f"🎵 {title}\n\n✅ Bot orqali yuklandi")
+                await wait_msg.delete()
+                os.remove(mp3_path)
+            else:
+                await wait_msg.edit_text("❌ Musiqa topilmadi.")
+        except Exception as e:
+            await wait_msg.edit_text("❌ Musiqani yuklab bo'lmadi, boshqacharoq nom yozib ko'ring.")
+            if os.path.exists(mp3_path):
+                os.remove(mp3_path)
 
-# ==========================================
-# 5. RENDER BEPUL SERVER (PORT KONTROLLI)
-# ==========================================
-async def handle_web(request):
-    return web.Response(text="Musiqa Boti faol ishlamoqda!")
+# ==================== ADMIN RASSILKA ====================
+@dp.message(F.text.startswith("/send") & (F.from_user.id == ADMIN_ID))
+async def send_broadcast(message: types.Message):
+    text_to_send = message.text.replace("/send", "").strip()
+    if not text_to_send:
+        await message.answer("❌ Matn yozmadingiz! Namuna: /send Salom barchaga", parse_mode="Markdown")
+        return
+        
+    count = 0
+    await message.answer("🚀 Xabar yuborish boshlandi...")
+    for user_id in list(FOYDALANUVCHILAR):
+        try:
+            await bot.send_message(chat_id=user_id, text=text_to_send)
+            count += 1
+            await asyncio.sleep(0.03)
+        except Exception:
+            pass
 
-async def start_web():
-    app = web.Application()
-    app.router.add_get('/', handle_web)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    
-    # Kino bot bilan urushmaslik uchun PORT o'zgaruvchisidan foydalanamiz
-    port = int(os.environ.get("PORT", 8081))
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    await site.start()
+    await message.answer(f"✅ Xabar {count} ta foydalanuvchiga muvaffaqiyatli yuborildi!")
 
+# ==================== ASOSIY ISHGA TUSHIRISH ====================
 async def main():
     logging.basicConfig(level=logging.INFO)
-    try:
-        await bot.delete_webhook(drop_pending_updates=True)
-    except Exception as e:
-        print(f"Webhook error: {e}")
-
-    asyncio.create_task(start_web())
+    
+    # Render va UptimeRobot uchun web serverni yurgizish
+    await start_web_server()
+    
+    # Eskilarini tozalash
+    await bot.delete_webhook(drop_pending_updates=True)
+    
+    # Polling boshlash
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
