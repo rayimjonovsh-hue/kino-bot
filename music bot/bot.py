@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import aiohttp
+from urllib.parse import quote
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
@@ -39,22 +40,25 @@ bosh_menyu = ReplyKeyboardMarkup(
 
 # HELPER: DEEZER ORQALI MUSIQA QIDIRISH (YouTube blokiga tushmaydi)
 async def search_deezer_music(query):
-    search_url = f"https://api.deezer.com/search?q={query}"
+    search_url = f"https://api.deezer.com/search?q={quote(query)}"
     async with aiohttp.ClientSession() as session:
         async with session.get(search_url) as resp:
             if resp.status == 200:
                 data = await resp.json()
+                print("DEEZER RESPONSE:", data)
                 if data.get('data'):
                     track = data['data'][0]
                     title = f"{track['artist']['name']} - {track['title']}"
                     audio_url = track['preview']
-                    
+
                     async with session.get(audio_url) as a_resp:
                         if a_resp.status == 200:
                             filename = f"music_{track['id']}.mp3"
                             with open(filename, 'wb') as f:
                                 f.write(await a_resp.read())
                             return filename, title
+            else:
+                print("DEEZER STATUS ERROR:", resp.status)
     return None, None
 
 # HELPER: INSTAGRAM VA YOUTUBE LINKIDAN VIDEO YUKLASH (yt-dlp)
