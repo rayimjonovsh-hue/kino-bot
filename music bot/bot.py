@@ -11,7 +11,7 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 import yt_dlp
 
 # SOZLAMALAR
-BOT_TOKEN = "8848060623:AAFcjLeYLzMWpUi1Rpr-36bzxP-ZW2-T97A"
+BOT_TOKEN = "8848060623:AAGQD1BixPjDE5rJ1v0KWKxtv6Bu2D9e4m8"
 CHANNEL_USERNAME = "@filimlar9"  # MAJBURIY OBUNA KANALI (bot shu yerda ADMIN bo'lishi shart!)
 
 bot = Bot(token=BOT_TOKEN)
