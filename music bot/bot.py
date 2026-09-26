@@ -1,278 +1,192 @@
 import asyncio
 import logging
-import sqlite3
 import os
-from datetime import datetime
-
-from aiogram import Bot, Dispatcher, F
-from aiogram.filters import Command, CommandStart
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import Message, FSInputFile
-
-from openai import OpenAI
+import re
+import aiohttp
+from aiohttp import web
 import yt_dlp
-from dotenv import load_dotenv
 
-# ============================================================
-# SOZLAMALAR
-# Bu qiymatlar .env faylidan o'qiladi (xavfsizlik uchun, GitHub'ga
-# tokenlar to'g'ridan-to'g'ri kod ichida ketmasligi kerak)
-# ============================================================
-load_dotenv()
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import CommandStart
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, FSInputFile
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-print("DEBUG TOKEN:", repr(BOT_TOKEN))
-
-logging.basicConfig(level=logging.INFO)
+# ==========================================
+# 1. SOZLAMALAR
+# ==========================================
+# Tokeningizni va Admin ID'ingizni kiriting
+BOT_TOKEN = "8848060623:AAFcjLeYLzMWpUi1Rpr-36bzxP-ZW2-T97A"
+ADMIN_ID = 8358382613
 
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(storage=MemoryStorage())
+dp = Dispatcher()
 
-groq_client = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
-
-DB_PATH = "users.db"
-DOWNLOAD_DIR = "downloads"
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-
-
-# ============================================================
-# MA'LUMOTLAR BAZASI
-# ============================================================
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            first_name TEXT,
-            joined_at TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-
-def add_user_if_new(user_id: int, username: str, first_name: str):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
-    if cur.fetchone() is None:
-        cur.execute(
-            "INSERT INTO users (user_id, username, first_name, joined_at) VALUES (?, ?, ?, ?)",
-            (user_id, username, first_name, datetime.now().strftime("%Y-%m-%d %H:%M")),
-        )
-        conn.commit()
-    conn.close()
-
-
-def get_all_users():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT user_id, username, first_name, joined_at FROM users ORDER BY joined_at DESC")
-    rows = cur.fetchall()
-    conn.close()
-    return rows
-
-
-def get_user_count():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM users")
-    count = cur.fetchone()[0]
-    conn.close()
-    return count
-
-
-# ============================================================
-# HOLATLAR (FSM) - musiqa qidirish jarayoni uchun
-# ============================================================
-class MusicStates(StatesGroup):
-    waiting_query = State()
-    waiting_choice = State()
-
-
-# ============================================================
-# /start BUYRUG'I
-# ============================================================
-@dp.message(CommandStart())
-async def cmd_start(message: Message):
-    add_user_if_new(
-        message.from_user.id,
-        message.from_user.username or "-",
-        message.from_user.first_name or "-",
-    )
-    await message.answer(
-        "Assalomu alaykum! 👋\n\n"
-        "Men sizga quyidagilarda yordam bera olaman:\n"
-        "🎵 /music — qo'shiq qidirish va yuklab olish\n"
-        "💬 Oddiy xabar yozsangiz — sun'iy intellekt bilan suhbatlashamiz\n"
-    )
-
-
-# ============================================================
-# ADMIN STATISTIKASI - faqat ADMIN_ID ko'ra oladi
-# ============================================================
-@dp.message(Command("stats"))
-async def cmd_stats(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return  # boshqa hech kim javob olmaydi
-
-    users = get_all_users()
-    count = get_user_count()
-
-    text = f"📊 Jami foydalanuvchilar: <b>{count}</b>\n\n"
-    text += "So'nggi qo'shilganlar:\n"
-    for user_id, username, first_name, joined_at in users[:20]:
-        uname = f"@{username}" if username != "-" else "(username yo'q)"
-        text += f"• {first_name} {uname} — ID: <code>{user_id}</code> — {joined_at}\n"
-
-    if count > 20:
-        text += f"\n... va yana {count - 20} kishi"
-
-    await message.answer(text, parse_mode="HTML")
-
-
-# ============================================================
-# MUSIQA QIDIRISH - /music buyrug'i
-# ============================================================
-@dp.message(Command("music"))
-async def cmd_music(message: Message, state: FSMContext):
-    await state.set_state(MusicStates.waiting_query)
-    await message.answer("🎵 Qo'shiq nomini yoki qo'shiqchi ismini yozing:")
-
-
-def search_youtube(query: str, limit: int = 10):
-    """YouTube'dan qo'shiq qidirish, natijalarni ro'yxat qilib qaytaradi."""
-
-
-
-def format_duration(seconds):
-    if not seconds:
-        return "?"
-    minutes = int(seconds) // 60
-    secs = int(seconds) % 60
-    return f"{minutes}:{secs:02d}"
-
-
-@dp.message(MusicStates.waiting_query)
-async def process_music_query(message: Message, state: FSMContext):
-    query = message.text
-    searching_msg = await message.answer("🔍 Qidirilyapti...")
-
-    loop = asyncio.get_event_loop()
-    try:
-        results = await loop.run_in_executor(None, search_youtube, query, 10)
-    except Exception as e:
-        await searching_msg.edit_text(f"❌ Qidirishda xatolik: {e}")
-        await state.clear()
-        return
-
-    if not results:
-        await searching_msg.edit_text("Hech narsa topilmadi. Boshqa nom bilan urinib ko'ring.")
-        await state.clear()
-        return
-
-    await state.update_data(results=results)
-
-    text = "Natijalar topildi, raqamini yuboring:\n\n"
-    for i, r in enumerate(results, start=1):
-        text += f"{i}. {r['title']} ({format_duration(r['duration'])})\n"
-
-    await searching_msg.edit_text(text)
-    await state.set_state(MusicStates.waiting_choice)
-
-
-def download_audio(video_id: str) -> str:
-    """Berilgan video ID bo'yicha audio yuklab oladi, fayl yo'lini qaytaradi."""
-    output_path = os.path.join(DOWNLOAD_DIR, f"{video_id}.%(ext)s")
+# ==========================================
+# 2. YOUTUBE QIDIRUV FUNKSIYASI (yt-dlp)
+# ==========================================
+def search_youtube(query: str, max_results: int = 10):
     ydl_opts = {
-        "quiet": True,
-        "format": "bestaudio/best",
-        "outtmpl": output_path,
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "192",
-        }],
-        "noplaylist": True,
+        'format': 'bestaudio/best',
+        'noplaylist': True,
+        'quiet': True,
+        'extract_flat': 'in_playlist',
     }
-    url = f"https://www.youtube.com/watch?v={video_id}"
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.extract_info(url, download=True)
+        try:
+            results = ydl.extract_info(f"ytsearch{max_results}:{query}", download=False)
+            return results.get('entries', [])
+        except Exception as e:
+            logging.error(f"YouTube search error: {e}")
+            return []
 
-    final_path = os.path.join(DOWNLOAD_DIR, f"{video_id}.mp3")
-    return final_path
+def download_audio(video_id: str):
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    file_path = f"song_{video_id}.mp3"
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': f'song_{video_id}.%(ext)s',
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+        'quiet': True,
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+    
+    # Yuklangan fayl nomini aniqlash
+    if os.path.exists(file_path):
+        return file_path
+    for f in os.listdir('.'):
+        if f.startswith(f"song_{video_id}"):
+            return f
+    return None
 
+# ==========================================
+# 3. INSTAGRAM YUKLOVCHI FUNKSIYASI
+# ==========================================
+def download_instagram_video(url: str):
+    file_path = "insta_video.mp4"
+    if os.path.exists(file_path):
+        os.remove(file_path)
 
-@dp.message(MusicStates.waiting_choice)
-async def process_music_choice(message: Message, state: FSMContext):
-    data = await state.get_data()
-    results = data.get("results", [])
+    ydl_opts = {
+        'format': 'best',
+        'outtmpl': file_path,
+        'quiet': True,
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+    return file_path if os.path.exists(file_path) else None
 
-    if not message.text or not message.text.isdigit():
-        await message.answer("Iltimos, faqat raqam yuboring (masalan: 1)")
-        return
+# ==========================================
+# 4. BOT HANDLERLARI
+# ==========================================
 
-    choice = int(message.text)
-    if choice < 1 or choice > len(results):
-        await message.answer(f"Iltimos 1 dan {len(results)} gacha raqam yuboring")
-        return
-
-    selected = results[choice - 1]
-    downloading_msg = await message.answer(f"⬇️ Yuklab olinyapti: {selected['title']}...")
-
-    loop = asyncio.get_event_loop()
-    try:
-        file_path = await loop.run_in_executor(None, download_audio, selected["id"])
-        audio_file = FSInputFile(file_path, filename=f"{selected['title']}.mp3")
-        await message.answer_audio(audio_file, title=selected["title"])
-        await downloading_msg.delete()
-        os.remove(file_path)  # diskni tozalab turish uchun
-    except Exception as e:
-        await downloading_msg.edit_text(f"❌ Yuklab olishda xatolik: {e}")
-
-    await state.clear()
-
-
-# ============================================================
-# GROQ AI CHAT - oddiy xabarlarga javob
-# ============================================================
-def ask_groq(text: str) -> str:
-    completion = groq_client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role": "user", "content": text}],
+@dp.message(CommandStart())
+async def start_cmd(message: types.Message):
+    await message.answer(
+        f"👋 Salom, {message.from_user.first_name}!\n\n"
+        "🎶 Musiqalar qidiruvi: Qo'shiqchi yoki qo'shiq nomini yozing, men 10 ta eng sarasini topib beraman.\n"
+        "📹 Instagram downloader: Instagram video havolasini yuboring, uni yuklab beraman!"
     )
-    return completion.choices[0].message.content
 
+# 1. Instagram Link kelganda
+@dp.message(F.text.contains("instagram.com"))
+async def handle_instagram(message: types.Message):
+    msg = await message.answer("📥 Instagram video yuklanmoqda, kuting...")
+    try:
+        loop = asyncio.get_event_loop()
+        video_file = await loop.run_in_executor(None, download_instagram_video, message.text.strip())
+        
+        if video_file and os.path.exists(video_file):
+            video_input = FSInputFile(video_file)
+            await message.answer_video(video=video_input, caption="🎬 Instagram'dan yuklab olindi!")
+            await msg.delete()
+            os.remove(video_file)
+        else:
+            await msg.edit_text("❌ Videoni yuklab bo'lmadi. Havola to'g'riligini tekshiring.")
+    except Exception as e:
+        logging.error(f"Insta error: {e}")
+        await msg.edit_text("❌ Xatolik yuz berdi yoki video shaxsiy (private) akkauntdan.")
 
+# 2. Qo'shiq qidiruvi va 10 ta ro'yxat chiqarish
 @dp.message(F.text)
-async def ai_chat(message: Message):
-    thinking_msg = await message.answer("💭 O'ylanyapman...")
+async def handle_music_search(message: types.Message):
+    query = message.text.strip()
+    msg = await message.answer("🔎 YouTube'dan musiqa qidirilmoqda...")
+    
+    loop = asyncio.get_event_loop()
+    results = await loop.run_in_executor(None, search_youtube, query, 10)
+    
+    if not results:
+        await msg.edit_text("❌ Hech qanday musiqa topilmadi.")
+        return
+
+    text = f"🎵 '{query}' bo'yicha topilgan qo'shiqlar:\n\n"
+    keyboard = []
+    row = []
+
+    for idx, item in enumerate(results, start=1):
+        title = item.get('title', 'Noma\'lum qo\'shiq')
+        video_id = item.get('id')
+        text += f"{idx}. {title}\n"
+
+        # Tugmalarni 2 tadan qatoyga taxlash
+        row.append(InlineKeyboardButton(text=f"🎵 {idx}", callback_query_data=f"dl_{video_id}"))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+            
+    if row:
+        keyboard.append(row)
+
+    markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+    await msg.edit_text(text, reply_markup=markup, parse_mode="Markdown")
+
+# 3. Tugma bosilganda audioni yuklab berish
+@dp.callback_query(F.data.startswith("dl_"))
+async def process_download_callback(call: CallbackQuery):
+    video_id = call.data.split("dl_")[1]
+    await call.answer("📥 Musiqa yuklanmoqda...")
+    await call.message.answer("⌛ Qo'shiq tayyorlanmoqda, biroz kuting...")
 
     loop = asyncio.get_event_loop()
-    try:
-        reply = await loop.run_in_executor(None, ask_groq, message.text)
-        await thinking_msg.edit_text(reply)
-    except Exception as e:
-        await thinking_msg.edit_text(f"❌ Xatolik yuz berdi: {e}")
+    audio_file = await loop.run_in_executor(None, download_audio, video_id)
 
+    if audio_file and os.path.exists(audio_file):
+        audio_input = FSInputFile(audio_file)
+        await call.message.answer_audio(audio=audio_input, caption="🎧 Bot orqali yuklab olindi")
+        os.remove(audio_file)
+    else:
+        await call.message.answer("❌ Musiqani yuklab bo'lmadi.")
 
-# ============================================================
-# BOTNI ISHGA TUSHIRISH
-# ============================================================
+# ==========================================
+# 5. RENDER BEPUL SERVER (PORT KONTROLLI)
+# ==========================================
+async def handle_web(request):
+    return web.Response(text="Musiqa Boti faol ishlamoqda!")
+
+async def start_web():
+    app = web.Application()
+    app.router.add_get('/', handle_web)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    # Kino bot bilan urushmaslik uchun PORT o'zgaruvchisidan foydalanamiz
+    port = int(os.environ.get("PORT", 8081))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+
 async def main():
-    if not BOT_TOKEN or not GROQ_API_KEY or not ADMIN_ID:
-        print("XATO: .env faylida BOT_TOKEN, GROQ_API_KEY yoki ADMIN_ID to'ldirilmagan!")
-        return
-    init_db()
-    print("Bot ishga tushdi...")
-    await dp.start_polling(bot)
+    logging.basicConfig(level=logging.INFO)
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+    except Exception as e:
+        print(f"Webhook error: {e}")
 
+    asyncio.create_task(start_web())
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
