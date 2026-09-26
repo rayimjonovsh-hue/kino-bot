@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import os
-import re
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
@@ -10,19 +9,18 @@ import yt_dlp
 
 # ==================== SOZLAMALAR ====================
 BOT_TOKEN = "8848060623:AAFcjLeYLzMWpUi1Rpr-36bzxP-ZW2-T97A"
-ADMIN_ID = 8358382613  # Sizning Telegram ID-ngiz
+ADMIN_ID = 8358382613
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Foydalanuvchilar bazasi (xotirada)
 FOYDALANUVCHILAR = set()
 
-# ==================== WEB SERVER (UptimeRobot / Render uchun) ====================
+# ==================== WEB SERVER (UptimeRobot uchun) ====================
 async def handle(request):
-    return web.Response(text="Bot 24/7 faol ishlamoqda!")
+    return web.Response(text="Bot ishlamoqda")
 
-async def start_web_server():
+async def start_web():
     app = web.Application()
     app.router.add_get('/', handle)
     runner = web.AppRunner(app)
@@ -40,16 +38,35 @@ bosh_menyu = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
+# ==================== YOUTUBE YUKLOVCHI ====================
+def download_youtube_audio(query: str, user_id: int):
+    filename = f"music_{user_id}.m4a"
+    
+    ydl_opts = {
+        'format': 'm4a/bestaudio/best',
+        'outtmpl': filename,
+        'quiet': True,
+        'no_warnings': True,
+        'nocheckcertificate': True,
+        'default_search': 'ytsearch1:'
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(query, download=True)
+        if 'entries' in info and len(info['entries']) > 0:
+            title = info['entries'][0].get('title', 'Musiqa')
+        else:
+            title = info.get('title', 'Musiqa')
+        return filename, title
+
 # ==================== BOT BUYRUQLARI ====================
 @dp.message(CommandStart())
 async def start_cmd(message: types.Message):
     FOYDALANUVCHILAR.add(message.from_user.id)
     await message.answer(
         f"Salom, {message.from_user.first_name}!\n\n"
-        f"🎵 Musiqa va Video Yuklovchi Botga xush kelibsiz!\n\n"
-        f"📌 Nima qila olaman?\n"
-        f"1. Qo'shiq nomini yozing — YouTube'dan topib MP3 qilib beraman.\n"
-        f"2. Instagram linkini yuboring — videoni yuklab beraman.",
+        f"🎵 Musiqa botiga xush kelibsiz!\n\n"
+        f"Qo'shiq nomini yoki ijrochini yozib yuboring.",
         reply_markup=bosh_menyu,
         parse_mode="Markdown"
     )
@@ -57,16 +74,12 @@ async def start_cmd(message: types.Message):
 @dp.message(F.text == "📊 Statistika")
 async def show_stats(message: types.Message):
     FOYDALANUVCHILAR.add(message.from_user.id)
-    await message.answer(
-        f"📊 Bot statistikasi:\n\n"
-        f"👥 Jami foydalanuvchilar: {len(FOYDALANUVCHILAR)} ta\n"
-        f"⚡️ Bot serverda 24/7 va tezkor ishlamoqda!"
-    )
+    await message.answer(f"📊 Jami foydalanuvchilar: {len(FOYDALANUVCHILAR)} ta")
 
 @dp.message(F.text == "👨‍💻 Admin")
 async def show_admin(message: types.Message):
     FOYDALANUVCHILAR.add(message.from_user.id)
-    await message.answer("👨‍💻 Admin bilan bog'lanish: @shamsodbek_username")
+    await message.answer("👨‍💻 Admin: @mrbek077")
 
 @dp.message(F.text == "ℹ️ Yordam")
 async def show_help(message: types.Message):
@@ -74,96 +87,41 @@ async def show_help(message: types.Message):
     await message.answer(
         "ℹ️ Botdan foydalanish yo'riqnomasi:\n\n"
         "🔍 Qo'shiq izlash:\n"
-        "Shunchaki qo'shiq nomini yoki ijrochini yozib yuboring (Masalan: *Janob Rasul Yiglama*).\n\n"
-        "📥 Instagram Video:\n"
-        "Instagram post/reels linkini yuboring."
+        "Shunchaki qo'shiq nomini yoki ijrochini yozib yuboring (Masalan: Sherali Jorayev)."
     )
 
-# ==================== YOUTUBE DANI QIDIRISH VA MP3 YUKLASH ====================
-def search_and_download_yt_mp3(query: str, filename_prefix: str):
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'default_search': 'ytsearch1:',  # Birinchi topilgan natijani oladi
-        'outtmpl': f'{filename_prefix}.%(ext)s',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-        'quiet': True,
-        'no_warnings': True,
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(query, download=True)
-        title = info['entries'][0]['title'] if 'entries' in info else info.get('title', 'Musiqa')
-        return title
-
-# ==================== INSTAGRAM VIDEO YUKLASH ====================
-def download_insta_video(url: str, filename: str):
-    ydl_opts = {
-        'format': 'best',
-        'outtmpl': filename,
-        'quiet': True,
-        'no_warnings': True,
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
-# ==================== MATN VA LINKLARNI QABUL QILISH ====================
+# ==================== QIDIRUV VA YUKLASH ====================
 @dp.message(F.text & ~F.text.startswith("/"))
-async def handle_user_input(message: types.Message):
+async def handle_music_search(message: types.Message):
     FOYDALANUVCHILAR.add(message.from_user.id)
-    text = message.text
+    text = message.text.strip()
 
-    # 1. Instagram linki kelgan bo'lsa
-    if "instagram.com" in text:
-        wait_msg = await message.answer("📥 Instagram video yuklanmoqda...")
-        file_path = f"insta_{message.from_user.id}.mp4"
-        try:
-            await asyncio.to_thread(download_insta_video, text, file_path)
-            if os.path.exists(file_path):
-                video_file = types.FSInputFile(file_path)
-                await message.answer_video(video=video_file, caption="✅ Video yuklab olindi!")
-                await wait_msg.delete()
-                os.remove(file_path)
-            else:
-                await wait_msg.edit_text("❌ Videoni yuklab bo'lmadi.")
-        except Exception:
-            await wait_msg.edit_text("❌ Xatolik yuz berdi. Linkni tekshiring.")
-            if os.path.exists(file_path):
-                os.remove(file_path)
+    wait_msg = await message.answer(f"🔍 \"{text}\" qidirilmoqda...")
 
-    # 2. Qo'shiq nomi (Shazam funksiyasi)
-    else:
-        wait_msg = await message.answer(f"🔍 \"{text}\" YouTube'dan qidirilmoqda...")
-        file_prefix = f"audio_{message.from_user.id}"
-        mp3_path = f"{file_prefix}.mp3"
-        
-        try:
-            # YouTube'dan qidirib yuklash
-            title = await asyncio.to_thread(search_and_download_yt_mp3, text, file_prefix)
-            
-            if os.path.exists(mp3_path):
-                audio_file = types.FSInputFile(mp3_path, filename=f"{title}.mp3")
-                await message.answer_audio(audio=audio_file, caption=f"🎵 {title}\n\n✅ Bot orqali yuklandi")
-                await wait_msg.delete()
-                os.remove(mp3_path)
-            else:
-                await wait_msg.edit_text("❌ Musiqa topilmadi.")
-        except Exception as e:
+    try:
+        loop = asyncio.get_event_loop()
+        file_path, title = await loop.run_in_executor(None, download_youtube_audio, text, message.from_user.id)
+
+        if os.path.exists(file_path):
+            audio_file = types.FSInputFile(file_path, filename=f"{title}.m4a")
+            await message.answer_audio(audio=audio_file, caption=f"🎵 {title}\n\n✅ Bot orqali yuklab olindi")
+            await wait_msg.delete()
+            os.remove(file_path)
+        else:
             await wait_msg.edit_text("❌ Musiqani yuklab bo'lmadi, boshqacharoq nom yozib ko'ring.")
-            if os.path.exists(mp3_path):
-                os.remove(mp3_path)
+    except Exception as e:
+        await wait_msg.edit_text("❌ Musiqani yuklab bo'lmadi, boshqacharoq nom yozib ko'ring.")
 
 # ==================== ADMIN RASSILKA ====================
 @dp.message(F.text.startswith("/send") & (F.from_user.id == ADMIN_ID))
 async def send_broadcast(message: types.Message):
     text_to_send = message.text.replace("/send", "").strip()
     if not text_to_send:
-        await message.answer("❌ Matn yozmadingiz! Namuna: /send Salom barchaga", parse_mode="Markdown")
+        await message.answer("❌ Matn yozmadingiz! Namuna: /send Salom")
         return
         
     count = 0
-    await message.answer("🚀 Xabar yuborish boshlandi...")
+    await message.answer("🚀 Xabar yuborilmoqda...")
     for user_id in list(FOYDALANUVCHILAR):
         try:
             await bot.send_message(chat_id=user_id, text=text_to_send)
@@ -172,19 +130,18 @@ async def send_broadcast(message: types.Message):
         except Exception:
             pass
 
-    await message.answer(f"✅ Xabar {count} ta foydalanuvchiga muvaffaqiyatli yuborildi!")
+    await message.answer(f"✅ {count} ta foydalanuvchiga yuborildi!")
 
-# ==================== ASOSIY ISHGA TUSHIRISH ====================
+# ==================== ISHGA TUSHIRISH ====================
 async def main():
     logging.basicConfig(level=logging.INFO)
     
-    # Render va UptimeRobot uchun web serverni yurgizish
-    await start_web_server()
-    
-    # Eskilarini tozalash
-    await bot.delete_webhook(drop_pending_updates=True)
-    
-    # Polling boshlash
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+    except Exception as e:
+        print(f"Webhook o'chirishda xato: {e}")
+
+    asyncio.create_task(start_web())
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
