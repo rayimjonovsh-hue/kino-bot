@@ -119,7 +119,7 @@ async def is_subscribed(user_id: int) -> bool:
 class SubscriptionMiddleware(BaseMiddleware):
     """Har bir xabardan oldin foydalanuvchi @filimlar9 ga obuna bo'lganini tekshiradi."""
 
-   async def call(
+async def call(
         self,
         handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
         event: types.Message,
