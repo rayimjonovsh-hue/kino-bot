@@ -119,7 +119,7 @@ async def is_subscribed(user_id: int) -> bool:
 class SubscriptionMiddleware(BaseMiddleware):
     """Har bir xabardan oldin foydalanuvchi @filimlar9 ga obuna bo'lganini tekshiradi."""
 
-async def call(
+    async def __call__(
         self,
         handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
         event: types.Message,
@@ -327,7 +327,7 @@ async def update_bot_description():
                 short_description=f"🎬 Kinolar olami | 👥 {jami} ta foydalanuvchi"
             )
             await bot.set_my_description(
-               description=(
+                description=(
                     "🎬 Kinolar olami botiga xush kelibsiz!\n"
                     f"👥 Hozirda botda {jami} ta foydalanuvchi bor.\n\n"
                     f"📢 Ishga tushirish uchun {KANAL_USERNAME} kanaliga obuna bo'ling va /start bosing."
@@ -369,4 +369,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())  
+    asyncio.run(main())
